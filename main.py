@@ -1,10 +1,9 @@
-import time
 import re
+import time
 
 from data_processor import process_hotel_data
-from llm_manager import generate_hotel_summary
-from email_sender import send_hotel_report
-
+from email_sender import EmailConfigurationError, EmailInputError, send_hotel_report
+from llm_manager import LLMConfigurationError, LLMInputError, generate_hotel_summary
 
 DEFAULT_TEST_EMAIL = "ahmednaeembhuri456@gmail.com"
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -42,12 +41,18 @@ def main():
 
     # 1. Ingest Data & Apply Logic
     try:
-        df, revenue_threshold, order_thresh = process_hotel_data(
-            test_email=recipient_email
-        )
+        df, _, _ = process_hotel_data(test_email=recipient_email)
         print(f"Data loaded successfully. Processing {len(df)} hotels.\n")
-    except Exception as e:
-        print(f"Failed to load data: {e}")
+    except (
+        FileNotFoundError,
+        KeyError,
+        NotADirectoryError,
+        OSError,
+        RuntimeError,
+        UnicodeDecodeError,
+        ValueError,
+    ) as error:
+        print(f"Failed to load data: {error}")
         return
 
     for index, row in df.iterrows():
@@ -57,14 +62,38 @@ def main():
         print(f"Processing: {hotel_name}...")
 
         # Generate AI Message
-        email_body = generate_hotel_summary(row.to_dict())
+        try:
+            email_body = generate_hotel_summary(row.to_dict())
+        except LLMConfigurationError as error:
+            print(f"[STOP] AI configuration error: {error}")
+            return
+        except LLMInputError as error:
+            print(f"[SKIP] Invalid hotel data for {hotel_name}: {error}\n")
+            continue
 
-        if "Error" in email_body:
-            print(f"[SKIP] AI generation failed for {hotel_name}.\n")
+        if (
+            not email_body
+            or not email_body.strip()
+            or email_body.startswith("Error generating AI summary.")
+        ):
+            print(
+                f"[SKIP] AI generation failed or returned empty content for {hotel_name}.\n"
+            )
             continue
 
         # Send Email
-        success = send_hotel_report(target_email, hotel_name, email_body)
+        try:
+            success = send_hotel_report(target_email, hotel_name, email_body)
+        except EmailConfigurationError as error:
+            print(f"[STOP] Email configuration error: {error}")
+            return
+        except EmailInputError as error:
+            print(f"[SKIP] Invalid email report for {hotel_name}: {error}\n")
+            continue
+
+        if not success:
+            print(f"[SKIP] Email was not sent for {hotel_name}.\n")
+            continue
 
         # Brief pause to avoid hitting API rate limits on free tiers
         time.sleep(2)

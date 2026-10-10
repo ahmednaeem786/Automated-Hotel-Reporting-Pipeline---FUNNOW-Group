@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pandas as pd
 
-
 REQUIRED_DATASET_COLUMNS = {"brandname", "revenue", "Order"}
 IGNORED_DIRECTORIES = {".git", ".venv", "venv", "__pycache__", "node_modules"}
 
@@ -38,9 +37,7 @@ def find_dataset_file(search_root=None):
 
         try:
             with csv_path.open("r", encoding="utf-8-sig", newline="") as dataset:
-                headers = {
-                    header.strip() for header in next(csv.reader(dataset), [])
-                }
+                headers = {header.strip() for header in next(csv.reader(dataset), [])}
         except (OSError, UnicodeDecodeError, StopIteration):
             continue
 

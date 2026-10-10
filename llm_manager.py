@@ -1,12 +1,28 @@
 import os
+
+import groq
 from dotenv import load_dotenv
-from groq import Groq
 
 # Load environment variables from the .env file
 load_dotenv()
 
-# Initialize the Groq client (ensure GROQ_API_KEY is in your .env file)
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+client = (
+    groq.Groq(api_key=os.getenv("GROQ_API_KEY"))
+    if os.getenv("GROQ_API_KEY")
+    else None
+)
+
+
+class LLMConfigurationError(RuntimeError):
+    """Raised when the LLM client is not configured."""
+
+
+class LLMInputError(ValueError):
+    """Raised when hotel data is missing fields needed for the prompt."""
+
+
+class LLMResponseError(RuntimeError):
+    """Raised when the provider returns an unusable response."""
 
 
 def generate_hotel_summary(hotel_data):
@@ -14,6 +30,20 @@ def generate_hotel_summary(hotel_data):
     Takes a dictionary of hotel data and generates a personalized
     summary email body using Groq's blazing-fast inference.
     """
+    if not os.getenv("GROQ_API_KEY"):
+        raise LLMConfigurationError(
+            "GROQ_API_KEY is missing. Add it to the environment or .env file."
+        )
+
+    required_fields = {"brandname", "revenue", "Order", "performance_status"}
+    missing_fields = required_fields.difference(hotel_data)
+    if missing_fields:
+        raise LLMInputError(
+            "Hotel data is missing required fields: "
+            f"{', '.join(sorted(missing_fields))}"
+        )
+
+    hotel_name = hotel_data["brandname"]
     prompt = f"""
     You are an AI account manager at FUNNOW. 
     Write a short, professional email to the owner of {hotel_data["brandname"]}. 
@@ -44,11 +74,26 @@ def generate_hotel_summary(hotel_data):
             temperature=0.7,
             max_tokens=150,
         )
+        if not response.choices or not response.choices[0].message.content:
+            raise LLMResponseError("The LLM returned an empty summary.")
         return response.choices[0].message.content.strip()
 
-    except Exception as e:
-        print(f"Error generating summary for {hotel_data['brandname']}: {e}")
-        return "Error generating AI summary."
+    except groq.AuthenticationError as error:
+        print(f"[LLM AUTHENTICATION ERROR] {hotel_name}: check GROQ_API_KEY ({error})")
+    except groq.RateLimitError as error:
+        print(f"[LLM RATE LIMIT] {hotel_name}: retry later ({error})")
+    except (groq.APIConnectionError, groq.APITimeoutError) as error:
+        print(f"[LLM CONNECTION ERROR] {hotel_name}: provider unavailable ({error})")
+    except (groq.BadRequestError, groq.APIStatusError) as error:
+        print(f"[LLM API ERROR] {hotel_name}: request was rejected ({error})")
+    except groq.GroqError as error:
+        print(f"[LLM PROVIDER ERROR] {hotel_name}: {error}")
+    except LLMResponseError as error:
+        print(f"[LLM RESPONSE ERROR] {hotel_name}: {error}")
+    except (AttributeError, IndexError, KeyError, TypeError, ValueError) as error:
+        print(f"[LLM DATA ERROR] {hotel_name}: invalid hotel data ({error})")
+
+    return "Error generating AI summary."
 
 
 # Quick test block
