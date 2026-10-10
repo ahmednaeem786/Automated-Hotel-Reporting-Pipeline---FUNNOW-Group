@@ -68,6 +68,8 @@ def process_hotel_data(file_path=None, test_email="ahmednaeembhuri456@gmail.com"
     """
     Reads hotel data, calculates performance thresholds,
     and tags each hotel's performance status.
+
+    ``test_email`` is used as the recipient for all generated reports.
     """
     dataset_path = Path(file_path) if file_path else find_dataset_file()
     df = pd.read_csv(dataset_path)
